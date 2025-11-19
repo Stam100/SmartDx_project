@@ -9,8 +9,8 @@ import io
 # ------------------------
 # Configuration
 # ------------------------
-MODEL_PATH = os.path.join("models", "malaria_model.keras")  # place your model here
-st.set_page_config(page_title="SmartTB - Malaria Detector", layout="centered")
+MODEL_PATH = os.path.join("models", "malaria_model.keras") 
+st.set_page_config(page_title="SmartDx - Malaria Detector", layout="centered")
 
 # ------------------------
 # Load model (cached)
@@ -40,7 +40,7 @@ uploaded_file = st.file_uploader("Upload image (JPEG/PNG)", type=["jpg", "jpeg",
 if "log" not in st.session_state:
     st.session_state["log"] = []
 
-# Example images button (if you add sample images to assets later)
+# Example images button (if one adds sample images to assets later)
 # if st.button("Use sample image"):
 #     uploaded_file = open("assets/sample.jpg", "rb")
 

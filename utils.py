@@ -26,14 +26,14 @@ def load_model(path):
     return tf.keras.models.load_model(path)
 
 def predict(model, preprocessed_image):
-    """Return (label, confidence, probability). Label 1 -> Parasitized."""
+    """Return (label, confidence, probability). Label 0 -> Parasitized."""
     probs = model.predict(preprocessed_image)  # shape (1, 1) for sigmoid
     prob = float(probs.ravel()[0])
-    label = "Parasitized" if prob >= 0.5 else "Uninfected"
+    label = "Uninfected" if prob >= 0.5 else "Parasitized"
     confidence = prob if prob >= 0.5 else 1 - prob
     return label, float(confidence), float(prob)
 
-# Optional: simple Grad-CAM for visualization (works for small CNNs)
+# Optional: simple Grad-CAM for visualization 
 def make_gradcam_heatmap(model, img_array, last_conv_layer_name=None):
     """
     img_array: (1, H, W, 3) normalized
