@@ -1,6 +1,6 @@
 # SmartDx — AI-Powered Malaria Microscopy Detection
 
-smartDx is an AI-based diagnostic tool designed to assist laboratory technicians and clinicians in detecting malaria parasites from microscopic blood smear images.  
+SmartDx is an AI-based diagnostic tool designed to assist laboratory technicians and clinicians in detecting malaria parasites from microscopic blood smear images.  
 It uses a trained convolutional neural network (CNN) to classify images as **Parasitized** or **Uninfected**, providing a fast, low-cost screening method suitable for low-resource settings.
 
 ---
