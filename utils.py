@@ -33,45 +33,89 @@ def predict(model, preprocessed_image):
     confidence = prob if prob >= 0.5 else 1 - prob
     return label, float(confidence), float(prob)
 
-# Optional: simple Grad-CAM for visualization 
+# Simple Grad-CAM for visualization 
+
+def _find_last_conv_layer_name(model):
+    """Return the name of the last Conv2D layer in the model (or raise)."""
+    for layer in reversed(model.layers):
+        if isinstance(layer, tf.keras.layers.Conv2D):
+            return layer.name
+    raise ValueError("No Conv2D layer found in the model.")
+
 def make_gradcam_heatmap(model, img_array, last_conv_layer_name=None):
     """
-    img_array: (1, H, W, 3) normalized
-    Returns: heatmap (H,W) 0-1
+    Create a Grad-CAM heatmap for a model with a single scalar output (sigmoid or softmax).
+    - model: a tf.keras Model
+    - img_array: numpy array shape (1, H, W, 3), preprocessed exactly as model expects
+    - last_conv_layer_name: optional explicit conv layer name; if None, auto-detected
+    Returns:
+      heatmap: 2D numpy array with values in [0,1] resized to input image size, or None on failure
     """
-    # Find a convolutional layer if not provided
-    if last_conv_layer_name is None:
-        # pick the last layer with "conv" in name
-        for layer in reversed(model.layers):
-            if isinstance(layer, tf.keras.layers.Conv2D):
-                last_conv_layer_name = layer.name
-                break
-    if last_conv_layer_name is None:
+    try:
+        if last_conv_layer_name is None:
+            last_conv_layer_name = _find_last_conv_layer_name(model)
+
+        # Build a model that maps the input to the activations of the last conv layer
+        # and the model output.
+        last_conv_layer = model.get_layer(last_conv_layer_name)
+        grad_model = tf.keras.models.Model(
+            inputs=[model.inputs],
+            outputs=[last_conv_layer.output, model.output]
+        )
+
+        # Record operations for automatic differentiation.
+        with tf.GradientTape() as tape:
+            # Ensure we're watching the conv layer output
+            conv_outputs, predictions = grad_model(img_array)
+            # Handle multiple outputs: get scalar to compute gradients against
+            # If predictions is shape (1,1) or (1,), take predictions[:,0]
+            if isinstance(predictions, (list, tuple)):
+                pred = predictions[0]
+            else:
+                pred = predictions
+            # If last dimension > 1 (multi-class softmax), pick the top predicted class
+            if pred.shape[-1] > 1:
+                class_idx = tf.argmax(pred[0])
+                loss = pred[:, class_idx]
+            else:
+                # binary or single-output regression: use the single output
+                loss = pred[:, 0]
+
+        # Compute gradients of the loss w.r.t conv layer outputs
+        grads = tape.gradient(loss, conv_outputs)
+        if grads is None:
+            return None
+
+        # Global average pooling of gradients over the spatial dimensions
+        pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+
+        # Multiply each channel in the feature map array by the corresponding gradient importance
+        conv_outputs = conv_outputs[0]  # (H, W, channels)
+        pooled_grads = pooled_grads[..., tf.newaxis]  # (channels, 1)
+
+        # Compute weighted combination: channel-wise multiply then sum across channels
+        weighted = conv_outputs * pooled_grads
+        heatmap = tf.reduce_sum(weighted, axis=-1)
+
+        # Relu and normalize
+        heatmap = tf.nn.relu(heatmap)
+        heatmap = heatmap.numpy()
+        if np.max(heatmap) == 0:
+            return None
+        heatmap = heatmap / (np.max(heatmap) + 1e-8)
+
+        # Resize heatmap to input image size
+        input_h = img_array.shape[1]
+        input_w = img_array.shape[2]
+        heatmap = cv2.resize(heatmap, (input_w, input_h))
+        heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
+        return heatmap
+
+    except Exception as e:
+        # Fail gracefully: return None so caller can warn instead of crashing
+        # print("Grad-CAM generation failed:", str(e))
         return None
 
-    grad_model = tf.keras.models.Model(
-        [model.inputs], [model.get_layer(last_conv_layer_name).output, model.output]
-    )
-
-    with tf.GradientTape() as tape:
-        conv_outputs, predictions = grad_model(img_array)
-        loss = predictions[:, 0]  # assuming sigmoid single output
-
-    grads = tape.gradient(loss, conv_outputs)
-    if grads is None:
-        return None
-
-    # compute guided gradients
-    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
-    conv_outputs = conv_outputs[0]
-    heatmap = conv_outputs @ pooled_grads[..., tf.newaxis]
-    heatmap = tf.squeeze(heatmap)
-    heatmap = tf.maximum(heatmap, 0) / (tf.reduce_max(heatmap) + 1e-8)
-    heatmap = heatmap.numpy()
-    # resize to input size
-    heatmap = cv2.resize(heatmap, IMG_SIZE)
-    heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
-    return heatmap
 
 def overlay_heatmap_on_image(pil_img, heatmap, alpha=0.4, colormap=cv2.COLORMAP_JET):
     """Overlay heatmap (H,W 0-1) on original PIL image, return PIL image."""
